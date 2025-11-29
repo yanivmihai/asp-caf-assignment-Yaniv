@@ -7,6 +7,9 @@ from libcaf.ref import RefError, SymRef
 from libcaf.repository import HashRef, Repository, RepositoryError, branch_ref
 from pytest import raises
 
+import pytest
+from libcaf.repository import RepositoryError
+
 
 def test_init_with_custom_repo_dir(temp_repo_dir: Path) -> None:
     custom_repo_dir = '.custom_caf'
@@ -359,3 +362,69 @@ def test_head_commit_with_symbolic_ref_returns_hash_ref(temp_repo: Repository) -
     temp_repo.update_ref('heads/main', commit_ref)
 
     assert temp_repo.head_commit() == commit_ref
+
+
+
+
+# --- Tag tests ---
+
+
+def test_list_tags_empty_repo(temp_repo: Repository) -> None:
+    """Tags list should be empty in a fresh repo."""
+    assert temp_repo.list_tags() == []
+
+
+def test_create_and_list_tags(temp_repo: Repository, tmp_path) -> None:
+    """Creating tags should persist them under refs/tags and list_tags should see them."""
+    # Create a commit
+    file_path = temp_repo.working_dir / "file.txt"
+    file_path.write_text("content")
+    commit_ref = temp_repo.commit_working_dir("Tester", "Initial commit")
+
+    # Create two tags pointing to the same commit
+    temp_repo.create_tag("v1.0.0", commit_ref)
+    temp_repo.create_tag("release", "HEAD")
+
+    tags = temp_repo.list_tags()
+    # list_tags returns tags sorted lexicographically
+    assert tags == ["release", "v1.0.0"]
+
+
+def test_create_tag_duplicate_name_raises(temp_repo: Repository) -> None:
+    """Creating a tag with an existing name should raise a RepositoryError."""
+    file_path = temp_repo.working_dir / "file.txt"
+    file_path.write_text("content")
+    temp_repo.commit_working_dir("Tester", "Initial commit")
+
+    temp_repo.create_tag("v1.0.0", "HEAD")
+
+    with pytest.raises(RepositoryError):
+        temp_repo.create_tag("v1.0.0", "HEAD")
+
+
+def test_create_tag_invalid_commit_raises(temp_repo: Repository) -> None:
+    """Creating a tag pointing to a non-existent commit should raise."""
+    # 40 hex chars, looks like a hash but does not exist in the repo
+    bogus_hash = "deadbeef" * 5
+
+    with pytest.raises(RepositoryError):
+        temp_repo.create_tag("bad-tag", bogus_hash)
+
+
+def test_delete_tag_removes_it(temp_repo: Repository) -> None:
+    """Deleting an existing tag should remove it from disk and from list_tags()."""
+    file_path = temp_repo.working_dir / "file.txt"
+    file_path.write_text("content")
+    temp_repo.commit_working_dir("Tester", "Initial commit")
+
+    temp_repo.create_tag("to-delete", "HEAD")
+    assert "to-delete" in temp_repo.list_tags()
+
+    temp_repo.delete_tag("to-delete")
+    assert "to-delete" not in temp_repo.list_tags()
+
+
+def test_delete_nonexistent_tag_raises(temp_repo: Repository) -> None:
+    """Deleting a non-existent tag should raise a RepositoryError."""
+    with pytest.raises(RepositoryError):
+        temp_repo.delete_tag("no-such-tag")
